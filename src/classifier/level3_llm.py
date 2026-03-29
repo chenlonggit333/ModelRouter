@@ -3,6 +3,14 @@ from typing import Dict, Any, Optional
 import json
 
 
+class MockLLMClient:
+    """占位用的LLM客户端，用于测试和开发阶段"""
+
+    async def classify(self, prompt: str):
+        # 简化实现，实际应调用vLLM服务
+        return {"complexity_score": 0.5, "confidence": 0.8, "reasoning": "mock"}
+
+
 @dataclass
 class ComplexityResult:
     """复杂度分类结果"""
