@@ -1,0 +1,38 @@
+# Level 1 规则筛选配置
+
+simple_keywords:
+  - "你好"
+  - "您好"
+  - "谢谢"
+  - "什么是"
+  - "介绍一下"
+  - "解释一下"
+  - "简单"
+  - "简单说"
+  - "hello"
+  - "hi"
+  - "thanks"
+
+complex_keywords:
+  - "代码"
+  - "编写"
+  - "分析"
+  - "推理"
+  - "计算"
+  - "比较"
+  - "优化"
+  - "设计"
+  - "详细"
+  - "深入"
+  - "复杂"
+  - "完整方案"
+  - "debug"
+  - "algorithm"
+
+thresholds:
+  tier1: 0.3  # 复杂度低于此值走轻量模型
+  tier2: 0.7  # 复杂度高于此值走GLM5
+
+token_count:
+  simple_max: 100    # token数小于此值且无明显复杂关键词视为简单
+  complex_min: 2000  # token数大于此值视为复杂
