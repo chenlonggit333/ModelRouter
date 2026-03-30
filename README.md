@@ -96,13 +96,58 @@ isort src/ tests/
 
 ## 部署
 
-### 生产环境部署
+### 📖 详细部署指南
 
-1. 准备配置文件 `config/rules.yaml`
-2. 设置环境变量 `.env`
-3. 启动服务: `./scripts/deploy/start.sh`
-4. 配置Nginx反向代理
-5. 配置监控告警
+查看完整部署文档：
+- **[部署指南](docs/DEPLOYMENT.md)** - 详细的逐步部署说明
+- **[部署检查清单](docs/DEPLOYMENT_CHECKLIST.md)** - 确保部署完整的检查清单
+- **[设计文档](docs/superpowers/specs/2026-03-26-llm-router-design.md)** - 系统设计说明
+
+### 快速部署
+
+```bash
+# 1. 克隆代码
+git clone https://github.com/chenlonggit333/llm-router.git
+cd llm-router
+
+# 2. 安装依赖
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 3. 配置环境
+cp .env.example .env
+# 编辑.env配置GLM5和轻量模型地址
+
+# 4. 启动服务
+./scripts/deploy/start.sh
+```
+
+### 生产环境部署架构
+
+```
+                    用户请求
+                       │
+                       ▼
+              ┌─────────────────┐
+              │   Nginx负载均衡  │
+              │  (3-5台Router)  │
+              └────────┬────────┘
+                       │
+        ┌──────────────┼──────────────┐
+        ▼              ▼              ▼
+┌──────────┐   ┌──────────┐   ┌──────────┐
+│轻量模型池 │   │中端模型池 │   │ GLM5    │
+│(Tier 1)  │   │(Tier 2)  │   │(Tier 3) │
+│10-20台   │   │2-4台     │   │H200集群 │
+└──────────┘   └──────────┘   └──────────┘
+```
+
+**硬件要求：**
+- **Router Gateway**: 3-5台，4核8GB+
+- **轻量模型(Qwen2.5-7B)**: 10-20台，16GB显存
+- **分类器服务**: 4-8台，16GB显存（可与轻量模型共享）
+- **GLM5**: 保持现有H200*2*8卡部署
 
 ### Docker部署（可选）
 
