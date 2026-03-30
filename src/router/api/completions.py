@@ -14,6 +14,11 @@ from src.router.models import (
 )
 from src.router.config import settings
 from src.classifier.level1_rules import Level1Classifier
+from src.classifier.level2_embedding import (
+    Level2SimilarityMatcher,
+    DEFAULT_SIMILARITY_THRESHOLD,
+    DEFAULT_TOP_K,
+)
 from src.classifier.level3_llm import Level3Classifier, MockLLMClient
 from src.classifier.router import ClassificationRouter
 from src.models.pool import ModelPool, ModelInstance
@@ -66,7 +71,26 @@ def _get_components():
             level1 = Level1Classifier(settings.rules.dict())
             level3_llm_client = MockLLMClient()  # 占位，生产环境应连接vLLM
             level3 = Level3Classifier(level3_llm_client)
-            _classifier_router = ClassificationRouter(level1, level3)
+
+            # 初始化Level 2（可选，可通过环境变量禁用）
+            enable_level2 = os.getenv("ENABLE_LEVEL2", "true").lower() == "true"
+            if enable_level2:
+                try:
+                    level2 = Level2SimilarityMatcher(
+                        similarity_threshold=DEFAULT_SIMILARITY_THRESHOLD,
+                        top_k=DEFAULT_TOP_K,
+                    )
+                    logger.info("Level 2 similarity matcher initialized")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to initialize Level 2: {e}. Continuing without Level 2."
+                    )
+                    level2 = None
+            else:
+                level2 = None
+                logger.info("Level 2 disabled via environment variable")
+
+            _classifier_router = ClassificationRouter(level1, level3, level2)
             logger.info("Classifier router initialized")
 
             # 初始化模型池

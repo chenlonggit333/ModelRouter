@@ -5,7 +5,7 @@
 ## 功能特性
 
 - **智能路由**: 根据问题复杂度自动选择合适模型（轻量/中端/高端）
-- **三级分类**: Level 1规则筛选 + Level 3 LLM分类
+- **三级分类**: Level 1规则筛选 + Level 2语义匹配 + Level 3 LLM分类
 - **负载均衡**: 支持轮询、最少连接等多种策略
 - **降级机制**: 实例故障时自动切换，保证可用性
 - **OpenAI兼容API**: 完全兼容OpenAI接口格式
@@ -13,12 +13,29 @@
 ## 架构
 
 ```
-用户请求 → Router Gateway → [Level 1规则筛选] → [Level 3 LLM分类] → 模型池 → 响应
-                                    ↓                        ↓
-                            60-70%简单请求            30-40%复杂请求
-                                    ↓                        ↓
-                            轻量模型(7B)              GLM5/H100
+用户请求 → Router Gateway → [Level 1规则筛选] → [Level 2语义匹配] → [Level 3 LLM分类] → 模型池 → 响应
+                                     ↓                    ↓                    ↓
+                             60-70%简单请求      10-30%相似查询加速     20-30%复杂请求
+                                     ↓                    ↓                    ↓
+                             轻量模型(7B)         复用历史决策          GLM5/H100
 ```
+
+### 三级分类系统
+
+**Level 1 - 规则筛选** (<1ms)
+- 关键词匹配，快速判断简单/复杂请求
+- 60-70%简单请求直接路由到轻量模型
+- 10-15%复杂请求直接路由到GLM5
+
+**Level 2 - 语义匹配** (10-30ms)
+- 使用sentence-transformers生成语义向量
+- 向量相似度匹配(cosine similarity > 0.85)复用历史决策
+- 10-30%请求通过相似查询加速，跳过LLM分类
+
+**Level 3 - LLM分类** (50-100ms)
+- 使用轻量模型(如Qwen2.5-7B)进行复杂度分类
+- 处理20-30%的边界情况请求
+- 返回复杂度评分和置信度
 
 ## 快速开始
 
@@ -71,7 +88,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 llm-router/
 ├── src/
 │   ├── router/          # Router Gateway
-│   ├── classifier/      # 分类器（Level 1 + Level 3）
+│   ├── classifier/      # 分类器（Level 1 + Level 2 + Level 3）
 │   ├── models/          # 模型池和客户端
 │   └── common/          # 公共工具
 ├── tests/               # 测试代码
