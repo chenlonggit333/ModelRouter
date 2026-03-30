@@ -71,8 +71,8 @@ The system uses a 3-level classification approach:
 
 ```bash
 # Clone the repository
-git clone https://github.com/chenlonggit333/ModelRouter4YH.git
-cd ModelRouter4YH
+git clone https://github.com/chenlonggit333/ModelRouter.git
+cd ModelRouter
 
 # Create virtual environment
 python3 -m venv venv
@@ -185,7 +185,7 @@ Content-Type: application/json
 ## Project Structure
 
 ```
-ModelRouter4YH/
+ModelRouter/
 ├── src/
 │   ├── router/                    # Router Gateway
 │   │   ├── main.py               # FastAPI application entry
@@ -403,7 +403,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For questions or support:
 - 📧 Email: [chenlong_family@outlook.com]
-- 💬 Issues: [GitHub Issues](https://github.com/chenlonggit333/ModelRouter4YH/issues)
+- 💬 Issues: [GitHub Issues](https://github.com/chenlonggit333/ModelRouter/issues)
 - 📖 Documentation: [Full Documentation](docs/)
 
 ## Citation
@@ -415,7 +415,7 @@ If you use this project in your research or production systems, please cite:
   title={LLM Router: Intelligent Routing Gateway for Large Language Models},
   author={Your Name/Organization},
   year={2024},
-  url={https://github.com/chenlonggit333/ModelRouter4YH}
+  url={https://github.com/chenlonggit333/ModelRouter}
 }
 ```
 
