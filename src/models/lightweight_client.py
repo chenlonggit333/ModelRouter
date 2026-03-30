@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-import random
+import threading
 from src.models.glm5_client import GLM5Client
 
 
@@ -17,12 +17,15 @@ class LightweightModelClient:
         self.timeout = timeout
         self._clients = [GLM5Client(base_url=url, timeout=timeout) for url in base_urls]
         self._current_index = 0
+        # 添加锁保护轮询索引，防止竞态条件
+        self._lock = threading.Lock()
 
     def _select_client(self) -> GLM5Client:
-        """轮询选择一个客户端"""
-        client = self._clients[self._current_index % len(self._clients)]
-        self._current_index += 1
-        return client
+        """轮询选择一个客户端（线程安全）"""
+        with self._lock:
+            client = self._clients[self._current_index % len(self._clients)]
+            self._current_index += 1
+            return client
 
     async def chat_completion(
         self,

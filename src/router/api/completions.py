@@ -1,4 +1,8 @@
 import os
+import re
+import threading
+import logging
+import httpx
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
 from src.router.models import (
@@ -17,6 +21,9 @@ from src.models.load_balancer import LoadBalancer
 from src.models.glm5_client import GLM5Client
 from src.models.lightweight_client import LightweightModelClient
 
+# 配置日志
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 # 全局组件（简化版，生产环境应使用依赖注入）
@@ -26,9 +33,12 @@ _load_balancer = None
 _glm5_client = None
 _lightweight_client = None
 
+# 初始化锁，防止竞态条件
+_init_lock = threading.Lock()
+
 
 def _get_components():
-    """获取或初始化组件"""
+    """获取或初始化组件（线程安全）"""
     global \
         _classifier_router, \
         _model_pool, \
@@ -36,38 +46,58 @@ def _get_components():
         _glm5_client, \
         _lightweight_client
 
-    if _classifier_router is None:
-        # 初始化分类器
-        level1 = Level1Classifier(settings.rules.dict())
-        # Level 3分类器需要LLM客户端（这里简化处理，实际应连接到vLLM服务）
-        level3_llm_client = MockLLMClient()  # 占位
-        level3 = Level3Classifier(level3_llm_client)
-        _classifier_router = ClassificationRouter(level1, level3)
-
-    if _model_pool is None:
-        _model_pool = ModelPool()
-        # 从配置加载实例
-        _load_model_instances()
-
-    if _load_balancer is None:
-        _load_balancer = LoadBalancer(strategy="least_connection")
-
-    if _glm5_client is None:
-        # 从配置或环境变量加载GLM5地址
-        glm5_url = getattr(settings, "glm5_base_url", None) or os.getenv(
-            "GLM5_BASE_URL", "http://localhost:8000"
+    # 快速检查（无锁）
+    if _classifier_router is not None:
+        return (
+            _classifier_router,
+            _model_pool,
+            _load_balancer,
+            _glm5_client,
+            _lightweight_client,
         )
-        _glm5_client = GLM5Client(base_url=glm5_url, timeout=300)
 
-    if _lightweight_client is None:
-        # 从配置加载轻量模型地址列表
-        lightweight_urls = getattr(
-            settings, "lightweight_base_urls", None
-        ) or os.getenv("LIGHTWEIGHT_BASE_URLS", "http://localhost:8001").split(",")
-        lightweight_model = getattr(settings, "lightweight_model_name", "qwen2.5-7b")
-        _lightweight_client = LightweightModelClient(
-            base_urls=lightweight_urls, model_name=lightweight_model, timeout=60
-        )
+    # 需要初始化，获取锁
+    with _init_lock:
+        # 双重检查锁定模式
+        if _classifier_router is None:
+            logger.info("Initializing router components...")
+
+            # 初始化分类器
+            level1 = Level1Classifier(settings.rules.dict())
+            level3_llm_client = MockLLMClient()  # 占位，生产环境应连接vLLM
+            level3 = Level3Classifier(level3_llm_client)
+            _classifier_router = ClassificationRouter(level1, level3)
+            logger.info("Classifier router initialized")
+
+            # 初始化模型池
+            _model_pool = ModelPool()
+            _load_model_instances()
+            logger.info("Model pool initialized")
+
+            # 初始化负载均衡器
+            _load_balancer = LoadBalancer(strategy="least_connection")
+            logger.info("Load balancer initialized")
+
+            # 初始化GLM5客户端
+            glm5_url = getattr(settings, "glm5_base_url", None) or os.getenv(
+                "GLM5_BASE_URL", "http://localhost:8000"
+            )
+            _glm5_client = GLM5Client(base_url=glm5_url, timeout=300)
+            logger.info(f"GLM5 client initialized: {glm5_url}")
+
+            # 初始化轻量模型客户端
+            lightweight_urls = getattr(
+                settings, "lightweight_base_urls", None
+            ) or os.getenv("LIGHTWEIGHT_BASE_URLS", "http://localhost:8001").split(",")
+            lightweight_model = getattr(
+                settings, "lightweight_model_name", "qwen2.5-7b"
+            )
+            _lightweight_client = LightweightModelClient(
+                base_urls=lightweight_urls, model_name=lightweight_model, timeout=60
+            )
+            logger.info(
+                f"Lightweight client initialized with {len(lightweight_urls)} instances"
+            )
 
     return (
         _classifier_router,
@@ -105,8 +135,6 @@ def _load_model_instances():
 def _count_tokens(text: str) -> int:
     """估算token数（简化版，实际应使用tiktoken）"""
     # 简单估算：中文1个字符≈1个token，英文4个字符≈1个token
-    import re
-
     chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
     other_chars = len(text) - chinese_chars
     return chinese_chars + (other_chars // 4) + 1
@@ -182,5 +210,19 @@ async def chat_completions(
 
         return response
 
+    except httpx.HTTPStatusError as e:
+        # 模型服务返回错误状态码
+        logger.error(
+            f"Model service error: {e.response.status_code} - {e.response.text[:200]}"
+        )
+        raise HTTPException(
+            status_code=502, detail=f"模型服务错误: {e.response.status_code}"
+        )
+    except httpx.RequestError as e:
+        # 网络请求错误（连接失败、超时等）
+        logger.error(f"Model service request failed: {str(e)}")
+        raise HTTPException(status_code=503, detail="模型服务暂时不可用，请稍后重试")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # 其他未预料的错误
+        logger.exception("Unexpected error in chat_completions")
+        raise HTTPException(status_code=500, detail="内部服务器错误")
