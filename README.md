@@ -402,7 +402,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Support
 
 For questions or support:
-- 📧 Email: [your-email@company.com]
+- 📧 Email: [chenlong_family@outlook.com]
 - 💬 Issues: [GitHub Issues](https://github.com/chenlonggit333/ModelRouter4YH/issues)
 - 📖 Documentation: [Full Documentation](docs/)
 
