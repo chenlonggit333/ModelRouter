@@ -1,6 +1,11 @@
 from typing import List, Dict, Any, Optional
 import threading
+import logging
+import httpx
 from src.models.glm5_client import GLM5Client
+
+# 配置模块日志
+logger = logging.getLogger(__name__)
 
 
 class LightweightModelClient:
@@ -43,8 +48,9 @@ class LightweightModelClient:
         last_error = None
 
         # 尝试每个客户端，最多重试3次
-        for _ in range(min(3, len(self._clients))):
+        for attempt in range(min(3, len(self._clients))):
             client = self._select_client()
+            client_index = (self._current_index - 1) % len(self._clients)
             try:
                 result = await client.chat_completion(
                     messages=messages,
@@ -56,13 +62,30 @@ class LightweightModelClient:
                 # 添加模型信息
                 result["model"] = self.model_name
                 return result
-            except Exception as e:
+            except httpx.HTTPStatusError as e:
+                # HTTP错误（4xx, 5xx）
                 last_error = e
+                logger.warning(
+                    f"Model client {client_index} HTTP error: {e.response.status_code}"
+                )
+                continue
+            except httpx.RequestError as e:
+                # 网络错误（连接失败、超时等）
+                last_error = e
+                logger.warning(
+                    f"Model client {client_index} request error: {type(e).__name__}"
+                )
+                continue
+            except Exception as e:
+                # 其他未预料的错误，记录但继续尝试
+                last_error = e
+                logger.error(f"Model client {client_index} unexpected error: {e}")
                 continue
 
         # 所有客户端都失败
+        logger.error(f"All {len(self._clients)} lightweight model clients failed")
         raise Exception(
-            f"All lightweight model clients failed. Last error: {last_error}"
+            f"All lightweight model clients failed. Last error: {type(last_error).__name__}: {last_error}"
         )
 
     async def health_check(self) -> Dict[str, bool]:

@@ -1,3 +1,4 @@
+import threading
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from src.models.pool import ModelInstance
@@ -21,19 +22,22 @@ class LoadBalancingStrategy(ABC):
 
 
 class RoundRobinStrategy(LoadBalancingStrategy):
-    """轮询策略"""
+    """轮询策略（线程安全）"""
 
     def __init__(self):
         self._current_index = 0
+        # 添加锁保护轮询索引，确保线程安全
+        self._lock = threading.Lock()
 
     def select(self, instances: List[ModelInstance]) -> Optional[ModelInstance]:
         if not instances:
             return None
 
-        # 选择当前索引的实例
-        selected = instances[self._current_index % len(instances)]
-        self._current_index += 1
-        return selected
+        # 使用锁保护索引自增操作
+        with self._lock:
+            selected = instances[self._current_index % len(instances)]
+            self._current_index += 1
+            return selected
 
 
 class LeastConnectionStrategy(LoadBalancingStrategy):

@@ -136,11 +136,3 @@ class Level3Classifier:
             return "tier2"
         else:
             return "tier3"
-
-        # 根据复杂度分配
-        if complexity_score < self.tier1_threshold:
-            return "tier1"
-        elif complexity_score < self.tier2_threshold:
-            return "tier2"
-        else:
-            return "tier3"
