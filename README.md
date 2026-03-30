@@ -514,6 +514,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For questions or support:
 - 📧 Email: [chenlong_family@outlook.com]
+- 🐦 X (Twitter): [@ChenLong_tuite](https://x.com/ChenLong_tuite)
 - 💬 Issues: [GitHub Issues](https://github.com/chenlonggit333/ModelRouter/issues)
 - 📖 Documentation: [Full Documentation](docs/)
 

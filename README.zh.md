@@ -383,6 +383,14 @@ docker build -t llm-router .
 docker run -p 8000:8000 --env-file .env llm-router
 ```
 
+## 联系我们
+
+如有问题或需要支持，请通过以下方式联系：
+- 📧 邮箱: [chenlong_family@outlook.com]
+- 🐦 X (Twitter): [@ChenLong_tuite](https://x.com/ChenLong_tuite)
+- 💬 Issues: [GitHub Issues](https://github.com/chenlonggit333/ModelRouter/issues)
+- 📖 文档: [完整文档](docs/)
+
 ## 许可证
 
 MIT
