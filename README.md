@@ -54,9 +54,16 @@ The system uses a 3-level classification approach:
 ## Features
 
 - **Smart Routing**: Automatically selects optimal model tier based on query complexity
-- **3-Tier Architecture**: Light (7B) / Medium (32B) / Heavy (GLM5) models
+- **3-Level Classification Architecture**:
+  - **Level 1**: Rule-based filtering (<1ms) - routes 60-70% of simple queries
+  - **Level 2**: Embedding-based semantic matching (10-30ms) - accelerates 10-30% of queries by reusing historical decisions
+  - **Level 3**: LLM-based classification (50-100ms) - handles 20-30% of complex edge cases
+- **Vector Similarity Search**: Uses sentence-transformers (all-MiniLM-L6-v2) for semantic matching
+  - Cosine similarity threshold: 0.85 (configurable)
+  - Thread-safe in-memory vector storage with asyncio.Lock
+  - Automatic storage of routing decisions for future similarity matching
 - **Load Balancing**: Multiple strategies (Round Robin, Least Connection, Queue Depth)
-- **Fault Tolerance**: Automatic failover when instances fail
+- **Fault Tolerance**: Automatic failover when instances fail; Level 2 failures gracefully fall back to Level 3
 - **OpenAI Compatible API**: Drop-in replacement for OpenAI API
 - **Production Ready**: Thread-safe, comprehensive error handling, detailed logging
 - **High Performance**: Handles 3000-5000 QPS across the cluster
@@ -157,6 +164,11 @@ POST /v1/chat/completions
 }
 ```
 
+**Routing Path Examples:**
+- `["level1_rules"]` - Matched by Level 1 keyword rules
+- `["level1_rules", "level2_embedding"]` - Level 1 unclear, matched by Level 2 similarity
+- `["level1_rules", "level3_llm"]` - Level 1 & 2 unclear, classified by Level 3 LLM
+
 **Routing Modes**:
 - `"auto"`: Automatic routing based on complexity analysis
 - `"light"`: Force Tier 1 (lightweight models)
@@ -198,10 +210,14 @@ ModelRouter/
 │   │   ├── models.py             # Pydantic models
 │   │   └── middleware.py         # Logging middleware
 │   │
-│   ├── classifier/               # Classification system
-│   │   ├── level1_rules.py      # Rule-based classifier
-│   │   ├── level3_llm.py        # LLM-based classifier
-│   │   └── router.py            # Routing orchestrator
+│   ├── classifier/               # 3-Level Classification System
+│   │   ├── level1_rules.py      # Level 1: Rule-based keyword classifier
+│   │   ├── level2_embedding.py  # Level 2: Embedding-based semantic similarity
+│   │   │                          #   - EmbeddingService: Text-to-vector encoding
+│   │   │                          #   - VectorStore: In-memory vector storage (thread-safe)
+│   │   │                          #   - Level2SimilarityMatcher: Similarity matching
+│   │   ├── level3_llm.py        # Level 3: LLM-based complexity classifier
+│   │   └── router.py            # Routing orchestrator (integrates all 3 levels)
 │   │
 │   ├── models/                   # Model pool management
 │   │   ├── pool.py              # Model instance pool
@@ -213,14 +229,20 @@ ModelRouter/
 │       └── logger.py            # Logging configuration
 │
 ├── tests/                       # Test suite
+│   └── test_classifier/
+│       ├── test_level1_rules.py # Tests for Level 1 classifier
+│       ├── test_level2_embedding.py # Tests for Level 2 embedding matching
+│       └── ...                  # Other test files
 ├── config/                      # Configuration files
-│   └── rules.yaml              # Routing rules
+│   └── rules.yaml              # Routing rules for Level 1
 ├── scripts/                     # Deployment scripts
 │   └── deploy/
 │       └── start.sh            # Startup script
 ├── docs/                        # Documentation
 │   ├── DEPLOYMENT.md           # Detailed deployment guide
-│   └── DEPLOYMENT_CHECKLIST.md # Deployment checklist
+│   ├── DEPLOYMENT_CHECKLIST.md # Deployment checklist
+│   └── superpowers/specs/      # Design specifications
+│       └── 2026-03-26-llm-router-design.md
 └── README.md                    # This file
 ```
 
@@ -262,6 +284,73 @@ docker run -d \
   --env-file .env \
   --restart unless-stopped \
   llm-router:latest
+```
+
+## Technical Implementation
+
+### Level 2: Semantic Matching Architecture
+
+The Level 2 classifier uses **sentence-transformers** for embedding-based semantic similarity matching:
+
+**Core Components:**
+
+1. **EmbeddingService** (`src/classifier/level2_embedding.py`)
+   - Model: `all-MiniLM-L6-v2` (384-dimensional vectors)
+   - Lazy loading: Model loads on first use to reduce startup time
+   - Batch encoding support for efficiency
+   - Cosine similarity calculation with numerical stability (epsilon = 1e-8)
+
+2. **VectorStore** (`src/classifier/level2_embedding.py`)
+   - Thread-safe in-memory storage using `asyncio.Lock`
+   - FIFO eviction when max size (default: 100,000) is reached
+   - O(n) similarity search (suitable for MVP; production should use Milvus)
+   - Stores: text, embedding vector, metadata (route_decision, complexity_score, confidence)
+
+3. **Level2SimilarityMatcher** (`src/classifier/level2_embedding.py`)
+   - Configurable similarity threshold (default: 0.85)
+   - Configurable top-k search (default: 5)
+   - Async API for FastAPI compatibility
+   - Graceful error handling: returns None on failure, allowing fallback to Level 3
+
+**How It Works:**
+
+```
+1. Query arrives at Router
+2. Level 1 rules check (keywords, token count)
+   ├─ Match simple → Route to Tier 1 (60-70% of queries)
+   └─ Match complex → Route to Tier 3 (10-15% of queries)
+   
+3. Level 2 semantic matching (for remaining 15-30%)
+   ├─ Encode query to 384-dim vector
+   ├─ Search vector store for similar historical queries
+   ├─ If similarity >= 0.85 → Reuse historical decision (10-30% acceleration)
+   └─ If no match → Continue to Level 3
+
+4. Level 3 LLM classification (20-30% of queries)
+   └─ Classify with Qwen2.5-7B → Route to appropriate tier
+
+5. Store routing decision in Level 2 vector store
+   └─ Future similar queries will reuse this decision
+```
+
+**Production Considerations:**
+
+- **Current**: In-memory VectorStore (suitable for single-instance deployment)
+- **Future**: Replace with Milvus for distributed vector search at scale
+- **Model Size**: all-MiniLM-L6-v2 is ~80MB, loads in ~1-2 seconds
+- **Memory Usage**: VectorStore uses ~400MB for 100K records (384-dim float32 vectors)
+
+### Thread Safety
+
+Level 2 components use `asyncio.Lock` to ensure thread safety in the async FastAPI environment:
+
+```python
+async def add(self, text: str, embedding: np.ndarray, metadata: Dict):
+    async with self._lock:
+        # Critical section: modify shared lists
+        self._texts.append(text)
+        self._embeddings.append(embedding)
+        self._metadata.append(metadata)
 ```
 
 ## Performance Metrics
@@ -315,9 +404,28 @@ flake8 src/ tests/
 
 ## Configuration
 
+### Environment Variables
+
+```bash
+# Level 2 Configuration (Optional)
+ENABLE_LEVEL2=true                    # Enable/disable Level 2 semantic matching (default: true)
+LEVEL2_SIMILARITY_THRESHOLD=0.85     # Cosine similarity threshold for matching (default: 0.85)
+LEVEL2_TOP_K=5                        # Number of top similar queries to check (default: 5)
+LEVEL2_MAX_STORE_SIZE=100000         # Maximum vector store size (default: 100000)
+
+# Model Configuration
+GLM5_BASE_URL=http://your-glm5-server:8000
+LIGHTWEIGHT_BASE_URLS=http://qwen-001:8000,http://qwen-002:8000
+LIGHTWEIGHT_MODEL_NAME=qwen2.5-7b
+
+# Router Configuration
+ROUTER_PORT=8000
+ROUTER_LOG_LEVEL=INFO
+```
+
 ### Routing Rules
 
-Edit `config/rules.yaml`:
+Edit `config/rules.yaml` for Level 1 rule-based classification:
 ```yaml
 # Keywords that indicate simple queries
 simple_keywords:
